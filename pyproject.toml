@@ -1,0 +1,34 @@
+[project]
+name = "chatlog"
+version = "0.1.0"
+description = "AI 대화 로그를 한국어로 검색하는 로컬 RAG"
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+
+# 라이브러리가 아니라 스크립트 모음(python rag.py 식 실행)이라, 패키지 자동탐색을 끈다.
+# (이게 없으면 web/ logs/ eval/ 폴더를 패키지로 오인해 editable 설치가 실패한다.)
+[tool.setuptools]
+py-modules = []
+
+[project.optional-dependencies]
+web = ["fastapi", "uvicorn"]
+mcp = ["mcp"]                                          # Claude 등 MCP 클라이언트에 붙이기
+dev = ["pytest", "ruff", "mypy", "fastapi", "httpx"]   # httpx: FastAPI TestClient
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]      # pycodestyle, pyflakes, isort
+ignore = ["E741"]            # 모호한 변수명 허용(수식 표기)
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true     # numpy/fastapi 스텁 일부 부재 허용
+files = ["rag.py", "bm25.py"]     # 핵심 로직을 타입 체크

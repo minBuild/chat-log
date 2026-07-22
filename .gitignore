@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+index.npz
+index_meta.json
+auto_update.log
+# 실제 대화 로그는 커밋 금지 (개인/업무 데이터)
+logs/*.jsonl
+
+# 로컬 도구 상태 (oh-my-claudecode)
+.omc/
+
+# macOS
+.DS_Store

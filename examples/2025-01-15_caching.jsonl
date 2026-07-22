@@ -1,0 +1,4 @@
+{"date":"2025-01-15","source":"claude","topic":"caching","role":"user","text":"캐시 TTL을 24시간으로 잡은 이유가 뭐였지?"}
+{"date":"2025-01-15","source":"claude","topic":"caching","role":"assistant","text":"원본 데이터가 하루 한 번 갱신되기 때문입니다. 더 짧게 잡으면 변하지 않은 데이터를 불필요하게 다시 조회하게 되고, 더 길게 잡으면 갱신 후 하루 넘게 옛 값이 노출될 수 있어 24시간으로 합의했습니다."}
+{"date":"2025-01-15","source":"claude","topic":"caching","role":"user","text":"그럼 갱신 직후에 옛 값 보이는 문제는 어떻게 막아?"}
+{"date":"2025-01-15","source":"claude","topic":"caching","role":"assistant","text":"갱신 배치가 끝나는 시점에 해당 키를 명시적으로 무효화(invalidate)하도록 했습니다. TTL은 안전망이고, 실제 일관성은 배치 완료 훅의 캐시 퍼지가 담당합니다."}

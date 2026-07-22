@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- install_launchd.sh 가 __SCRIPT__ / __LOG__ 를 실제 경로로 치환해 설치한다. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.chatlog.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__SCRIPT__</string>
+    </array>
+
+    <!-- 매일 09:00 실행 (자는 동안 놓치면 깨어날 때 1회 실행) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>9</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__LOG__</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG__</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

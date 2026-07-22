@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Second Brain</title>
+<style>
+  :root {
+    --ground: #17132A; --card: #221C3E; --line: #352C57;
+    --text: #E9E3D8; --muted: #A79DB8; --accent: #E0A83E; --accent-2: #8A78E0;
+    --serif: "AppleMyungjo", "Nanum Myeongjo", Georgia, serif;
+    --sans: "Apple SD Gothic Neo", Pretendard, system-ui, -apple-system, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: radial-gradient(900px 500px at 80% -10%, #251c46, var(--ground)) fixed, var(--ground);
+    color: var(--text); font-family: var(--sans); line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 22px 80px; }
+  .brand { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.3em;
+           text-transform: uppercase; color: var(--accent); margin: 0 0 16px; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(40px, 7vw, 52px);
+       line-height: 1.04; letter-spacing: -0.015em; margin: 0 0 12px; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .sub { color: var(--muted); margin: 0 0 32px; font-size: 15.5px; }
+
+  form { display: flex; gap: 10px; }
+  #q {
+    flex: 1; background: #14101f; border: 1px solid var(--line); border-radius: 11px;
+    color: var(--text); font-family: var(--sans); font-size: 16px; padding: 14px 16px;
+  }
+  #q:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button {
+    background: var(--accent); color: #1a1206; border: 0; border-radius: 11px;
+    font-family: var(--sans); font-weight: 700; font-size: 15px; padding: 0 22px; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .opts { display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+          margin: 14px 2px 0; color: var(--muted); font-size: 13px; font-family: var(--mono); }
+  .opts label { display: flex; align-items: center; gap: 7px; position: relative; cursor: help; }
+  .opts label > span:first-child { border-bottom: 1px dotted var(--muted); }
+  .tip {
+    position: absolute; bottom: calc(100% + 10px); left: 0; width: 250px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 13px; font-family: var(--sans); font-size: 12.5px; line-height: 1.65;
+    color: var(--text); letter-spacing: 0; text-transform: none;
+    box-shadow: 0 14px 34px -14px rgba(0,0,0,.65); z-index: 20; pointer-events: none;
+    opacity: 0; visibility: hidden; transform: translateY(5px);
+    transition: opacity .15s ease, transform .15s ease;
+  }
+  .tip b { color: var(--accent); font-weight: 700; }
+  .opts label:hover .tip, .opts label:focus-within .tip { opacity: 1; visibility: visible; transform: none; }
+  .opts input[type=range] { accent-color: var(--accent-2); }
+  .opts input[type=text] { background:#14101f; border:1px solid var(--line); color:var(--text);
+          border-radius:7px; padding:4px 8px; font-family:var(--mono); width:120px; }
+
+  #answer {
+    margin-top: 28px; background: var(--card); border: 1px solid var(--line);
+    border-left: 2px solid var(--accent); border-radius: 12px; padding: 22px 24px;
+    white-space: pre-wrap; font-size: 16px; min-height: 24px;
+  }
+  #answer.empty { color: var(--muted); border-left-color: var(--line); font-style: italic; }
+  .spin { color: var(--accent); }
+
+  .src-title { font-family: var(--mono); font-size: 12px; letter-spacing: .15em;
+               text-transform: uppercase; color: var(--accent); margin: 30px 0 12px; }
+  .src { background: #14101f; border: 1px solid var(--line); border-radius: 10px;
+         padding: 13px 16px; margin-bottom: 10px; }
+  .src .meta { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .src .meta b { color: var(--accent-2); }
+  .src .snip { font-size: 13.5px; color: var(--text); opacity: .85;
+               display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="brand">Local RAG · 한국어 검색</p>
+  <h1>Second <em>Brain</em></h1>
+  <p class="sub">쌓인 AI 대화를 거슬러 검색합니다. 전부 로컬에서.</p>
+
+  <form id="f">
+    <input id="q" placeholder="예: 그 캐시 TTL 왜 24시간으로 잡았더라?" autocomplete="off" autofocus>
+    <button id="go" type="submit">묻기</button>
+  </form>
+
+  <div class="opts">
+    <label><span>주제</span> <input type="text" id="topic" placeholder="(전체)">
+      <span class="tip">특정 주제(프로젝트)로만 검색합니다. 비우면 전체에서 찾습니다.<br>예: <b>payment-api</b>, <b>mydata-worker</b></span>
+    </label>
+    <label><span>k</span> <input type="range" id="k" min="3" max="12" value="6"><span id="kv">6</span>
+      <span class="tip">답변 근거로 가져올 대화 조각 수.<br><b>작게</b>=콕 집어서, <b>크게</b>=여러 곳을 종합. 기본 6.</span>
+    </label>
+    <label><span>α</span> <input type="range" id="alpha" min="0" max="1" step="0.1" value="0.5"><span id="av">0.5</span>
+      <span class="tip">검색 방식 비중.<br><b>1</b> = 의미로 찾기(자연어 질문에 강함)<br><b>0</b> = 단어로 찾기(정확한 이름·에러코드)<br><b>0.5</b> = 반반</span>
+    </label>
+  </div>
+
+  <div id="answer" class="empty">질문을 입력하고 “묻기”를 누르세요.</div>
+  <div id="sources"></div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const k = $("k"), alpha = $("alpha");
+  k.oninput = () => $("kv").textContent = k.value;
+  alpha.oninput = () => $("av").textContent = parseFloat(alpha.value).toFixed(1);
+
+  function renderSources(sources) {
+    $("sources").innerHTML = (sources || []).length
+      ? '<div class="src-title">참고한 기록 ' + sources.length + '건</div>' +
+        sources.map((s) =>
+          `<div class="src"><div class="meta">${s.date} · <b>${s.topic}</b> · 유사도 ${s.score}</div>`
+          + `<div class="snip">${escapeHtml(s.text)}</div></div>`).join("")
+      : "";
+  }
+
+  // SSE 스트림을 fetch 리더로 파싱해 답변을 실시간으로 채운다.
+  $("f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const question = $("q").value.trim();
+    if (!question) return;
+    $("go").disabled = true;
+    const ans = $("answer");
+    ans.className = ""; ans.innerHTML = '<span class="spin">기록을 뒤지는 중…</span>';
+    $("sources").innerHTML = "";
+    let answerText = "", started = false;
+    try {
+      const r = await fetch("/api/ask/stream", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question, k: +k.value, alpha: +alpha.value,
+          topic: $("topic").value.trim() || null,
+        }),
+      });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error || r.statusText); }
+
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const blocks = buf.split("\n\n"); buf = blocks.pop();
+        for (const block of blocks) {
+          const ev = (block.match(/^event: (.*)$/m) || [])[1];
+          const dm = block.match(/^data: (.*)$/m);
+          if (!ev || !dm) continue;
+          const data = JSON.parse(dm[1]);
+          if (ev === "sources") renderSources(data);
+          else if (ev === "token") {
+            if (!started) { ans.textContent = ""; started = true; }
+            answerText += data; ans.textContent = answerText;
+          } else if (ev === "note") { ans.className = "empty"; ans.textContent = data; }
+          else if (ev === "error") { ans.className = "empty"; ans.textContent = "오류: " + data; }
+        }
+      }
+    } catch (err) {
+      ans.className = "empty"; ans.textContent = "오류: " + err.message;
+    } finally {
+      $("go").disabled = false;
+    }
+  });
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+</script>
+</body>
+</html>

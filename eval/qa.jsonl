@@ -1,0 +1,10 @@
+{"q": "캐시 TTL을 24시간으로 잡은 이유", "expect_topic": "caching"}
+{"q": "갱신 직후에 옛날 캐시 값이 보이는 문제 어떻게 막았지?", "expect_topic": "caching"}
+{"q": "외부 API 재시도를 지수 백오프로 한 이유", "expect_topic": "retry"}
+{"q": "재시도할 때 서버에 요청 몰리는 문제 어떻게 피했어?", "expect_topic": "retry"}
+{"q": "offset 페이징을 커서 페이징으로 바꾼 이유", "expect_topic": "pagination"}
+{"q": "페이지 뒤로 갈수록 목록 조회가 느려지던 거 어떻게 해결했지?", "expect_topic": "pagination"}
+{"q": "액세스 토큰 만료를 왜 30분으로 짧게 잡았지?", "expect_topic": "auth-token"}
+{"q": "리프레시 토큰을 따로 둔 이유가 뭐였더라?", "expect_topic": "auth-token"}
+{"q": "복합 인덱스 컬럼 순서를 status, created_at 으로 한 이유", "expect_topic": "db-index"}
+{"q": "정렬 쿼리에서 filesort 안 나게 인덱스 어떻게 걸었지?", "expect_topic": "db-index"}
