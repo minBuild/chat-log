@@ -1,4 +1,4 @@
-# chatlog
+# chatlog-secondBrain
 
 ![CI](https://github.com/minBuild/chat-log/actions/workflows/ci.yml/badge.svg)
 
