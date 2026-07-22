@@ -1,0 +1,2 @@
+{"date":"2025-05-20","source":"claude","topic":"db-index","role":"user","text":"그 조회 쿼리에 복합 인덱스를 (status, created_at) 순서로 건 이유 기억나?"}
+{"date":"2025-05-20","source":"claude","topic":"db-index","role":"assistant","text":"쿼리가 status로 등호 필터 후 created_at으로 정렬하기 때문입니다. 복합 인덱스는 왼쪽 컬럼부터 쓰이므로 등호 조건인 status를 앞에, 범위/정렬에 쓰는 created_at을 뒤에 둬야 인덱스만으로 필터와 정렬이 모두 해결됩니다. 순서를 바꾸면 정렬에 인덱스를 못 써 filesort가 발생합니다."}

@@ -1,0 +1,2 @@
+{"date":"2025-02-10","source":"claude","topic":"pagination","role":"user","text":"목록 API를 offset 페이징 대신 커서 페이징으로 바꾼 이유가 뭐였지?"}
+{"date":"2025-02-10","source":"claude","topic":"pagination","role":"assistant","text":"offset은 뒤 페이지로 갈수록 건너뛰는 행이 많아져 느려지고, 데이터가 중간에 삽입되면 같은 행이 두 번 보이거나 누락됩니다. 커서(마지막 키 기준) 방식은 인덱스를 그대로 타서 페이지 깊이와 무관하게 일정한 성능을 내고 중복/누락도 없어 채택했습니다."}

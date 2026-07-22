@@ -1,0 +1,29 @@
+# 로컬에서 ollama + 앱을 한 번에 띄운다.
+#   docker compose up --build
+# 첫 실행은 모델(bge-m3 + qwen2.5:7b, 합쳐 ~6GB)을 받느라 시간이 걸린다.
+# 실제 대화 로그로 쓰려면 host 의 logs/ 를 마운트하고 `rag.py ingest` 를 한 번 돌린다.
+services:
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+
+  app:
+    build: .
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      HOST: 0.0.0.0
+      PORT: "8000"
+      # CHATLOG_LLM: qwen2.5:14b   # 더 좋은 한국어를 원하면
+    ports:
+      - "8000:8000"
+    # 실데이터 인덱싱:  볼륨으로 logs/ 를 마운트한 뒤 컨테이너에서 rag.py ingest
+    # volumes:
+    #   - ./logs:/app/logs
+
+volumes:
+  ollama:
