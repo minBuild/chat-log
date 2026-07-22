@@ -103,7 +103,9 @@ def reload_chatlog() -> str:
     """로그를 새로 ingest 한 뒤, 메모리에 적재된 인덱스를 다시 읽어들인다."""
     _STATE["loaded"] = False
     n = _ensure_loaded()
-    return "인덱스가 없습니다 (rag.py ingest 필요)." if n is None else f"인덱스 재적재 완료: {n} 청크"
+    if n is None:
+        return "인덱스가 없습니다 (rag.py ingest 필요)."
+    return f"인덱스 재적재 완료: {n} 청크"
 
 
 if __name__ == "__main__":
