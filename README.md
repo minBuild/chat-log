@@ -2,6 +2,8 @@
 
 ![CI](https://github.com/minBuild/chat-log/actions/workflows/ci.yml/badge.svg)
 
+<img width="763" height="1146" alt="chatlog" src="https://github.com/user-attachments/assets/809f25ec-7ff3-4a3b-a710-4d039ffee5f5" />
+
 > 과거의 나에게 묻는다 — 매일 쌓인 내 AI 대화를 로컬 LLM이 대신 뒤져 답한다.
 
 "몇 달 전에 그거 왜 그렇게 짰더라?" 싶을 때, 흩어진 대화 기록을 한국어로 그냥 물어보면
@@ -36,9 +38,9 @@ $ rag.py ask "작년에 그 캐시 TTL 왜 24시간으로 잡았더라?"
 
 ```text
 대화 export / Claude Code 세션 ──import──▶ logs/*.jsonl ──ingest──▶ 벡터 인덱스 + BM25
-                                                                          │
-                  질문 ─┬─ 벡터 임베딩(코사인) ─┐                          │
-                        └─ BM25(어휘) ─────────┴─ α 결합 → 상위 k ◀────────┘
+                                                                         │
+                  질문 ─┬─ 벡터 임베딩(코사인) ────┐                           │
+                       └── BM25(어휘) ─────────┴─ α 결합 → 상위 k ◀──────────┘
                                                       │
                                           로컬 LLM ──▶ 근거(날짜) 인용 답변
 ```
