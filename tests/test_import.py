@@ -109,3 +109,26 @@ def test_claude_export_import(tmp_path, monkeypatch):
     assert [r["role"] for r in recs] == ["user", "assistant"]
     assert all(r["topic"] == "caching" for r in recs)
     assert recs[0]["date"] == "2025-01-15"
+
+
+def test_claude_code_import_redacts_secrets_by_default(tmp_path, monkeypatch):
+    import import_logs as il
+    src = tmp_path / "src"
+    src.mkdir()
+    lines = [
+        {"type": "user", "timestamp": "2025-05-01T09:00:00Z", "cwd": "/Users/x/payflow",
+         "message": {"role": "user", "content": "토큰 알려줘"}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "text",
+             "text": "GITHUB_TOKEN=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 입니다"}]}},
+    ]
+    with open(src / "s1.jsonl", "w", encoding="utf-8") as f:
+        for o in lines:
+            f.write(json.dumps(o, ensure_ascii=False) + "\n")
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    monkeypatch.setattr(il, "LOG_DIR", str(logs))
+    il.import_claude_code(str(src), None)
+    text = open(next(logs.iterdir()), encoding="utf-8").read()
+    assert "ghp_" not in text and "GITHUB_TOKEN=[REDACTED:github]" in text
+    assert il._MASKED["n"] >= 1

@@ -24,8 +24,22 @@ import json
 import os
 import re
 
+from redact import redact_text
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(HERE, "logs")
+
+
+_MASKED = {"n": 0}
+
+
+def _clean(text, do_redact=True):
+    """저장 직전에 비밀값(토큰·키·비밀번호)을 마스킹한다. --no-redact 로 끌 수 있다."""
+    if not do_redact:
+        return text
+    text, n = redact_text(text)
+    _MASKED["n"] += n
+    return text
 
 
 def slugify(s, maxlen=30):
@@ -56,7 +70,7 @@ def msg_text(m):
 
 
 # ── claude.ai export ───────────────────────────────────────────────
-def import_claude_export(path, topic_override):
+def import_claude_export(path, topic_override, do_redact=True):
     with open(path, encoding="utf-8") as f:
         convs = json.load(f)
     if isinstance(convs, dict):           # 단일 대화로 내보낸 경우 대비
@@ -82,7 +96,7 @@ def import_claude_export(path, topic_override):
                     "source": "claude",
                     "topic": topic,
                     "role": role,
-                    "text": text,
+                    "text": _clean(text, do_redact),
                 }, ensure_ascii=False) + "\n")
         written += 1
         print(f"  ✓ {os.path.basename(out)}  ({len(msgs)} 메시지)")
@@ -103,7 +117,7 @@ def parse_frontmatter(raw):
     return meta, body.strip()
 
 
-def import_memory(path, topic_override):
+def import_memory(path, topic_override, do_redact=True):
     files = sorted(glob.glob(os.path.join(path, "*.md")))
     files = [f for f in files if os.path.basename(f) != "MEMORY.md"]
     if not files:
@@ -123,7 +137,7 @@ def import_memory(path, topic_override):
                 "source": "claude-memory",
                 "topic": topic_override or meta.get("type", "memory"),
                 "role": "memory",
-                "text": (desc + "\n" + body).strip() if desc else body,
+                "text": _clean((desc + "\n" + body).strip() if desc else body, do_redact),
             }, ensure_ascii=False) + "\n")
         written += 1
         print(f"  ✓ {os.path.basename(out)}")
@@ -177,7 +191,7 @@ def _cc_parse_session(path):
     return title, topic, recs
 
 
-def import_claude_code(path, topic_override, prune=False):
+def import_claude_code(path, topic_override, prune=False, do_redact=True):
     if os.path.isdir(path):
         files = sorted(glob.glob(os.path.join(path, "**", "*.jsonl"), recursive=True))
     else:
@@ -203,7 +217,7 @@ def import_claude_code(path, topic_override, prune=False):
                     "source": "claude-code",
                     "topic": topic_override or topic,
                     "role": r["role"],
-                    "text": r["text"],
+                    "text": _clean(r["text"], do_redact),
                 }, ensure_ascii=False) + "\n")
         written.add(name)
     print(f"\n{len(written)} 개 세션 변환, {skipped} 개 스킵(대화 없음) → logs/")
@@ -238,17 +252,22 @@ def main():
         sp = sub.add_parser(name, help=help_)
         sp.add_argument("path")
         sp.add_argument("--topic", help="모든 레코드의 topic 을 이 값으로 강제")
+        sp.add_argument("--no-redact", action="store_true",
+                        help="비밀값(토큰·키·비밀번호) 마스킹 끄기 (기본은 켜짐)")
         if name == "claude-code":
             sp.add_argument("--prune", action="store_true",
                             help="원본에서 사라진 세션의 로그도 삭제(삭제 동기화)")
     args = p.parse_args()
     os.makedirs(LOG_DIR, exist_ok=True)
+    do_redact = not args.no_redact
     if args.cmd == "claude-code":
-        import_claude_code(args.path, args.topic, prune=args.prune)
+        import_claude_code(args.path, args.topic, prune=args.prune, do_redact=do_redact)
     elif args.cmd == "claude-export":
-        import_claude_export(args.path, args.topic)
+        import_claude_export(args.path, args.topic, do_redact=do_redact)
     else:
-        import_memory(args.path, args.topic)
+        import_memory(args.path, args.topic, do_redact=do_redact)
+    if _MASKED["n"]:
+        print(f"  비밀값 마스킹: {_MASKED['n']}건 → [REDACTED:...] 로 대체 (끄려면 --no-redact)")
 
 
 if __name__ == "__main__":
