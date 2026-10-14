@@ -25,9 +25,12 @@ $ rag.py ask "작년에 그 캐시 TTL 왜 24시간으로 잡았더라?"
 - **하이브리드 검색** — 벡터(의미) + BM25(어휘)를 `α`로 결합. 의미도, 정확한 식별자도 잡는다.
 - **로컬 전용** — Ollama(bge-m3 + qwen2.5) + numpy. 외부 API·인터넷 0.
 - **자동 백업** — macOS launchd 가 매일 CLI 대화를 수집·증분 인덱싱(멱등).
+- **결론 메모** — 찾아낸 답과 출처 링크를 `notes/notes.jsonl` 한 파일에 남기고, 검색에서 원문보다 먼저 띄운다.
+  Notion·Confluence 대신 저장소 안의 백업 파일 하나가 기준이다.
+- **비밀값 마스킹** — import·메모 저장 때 토큰·키·비밀번호·복구 코드를 `[REDACTED:종류]` 로 지운다.
 - **웹 UI + API** — FastAPI, 답변이 실시간으로 타이핑되는 스트리밍.
 - **측정되는 품질** — `eval.py` 로 recall@k / MRR, `--sweep` 으로 벡터/하이브리드/BM25 비교.
-- **지켜지는 코드** — pytest 31개 + ruff + mypy, GitHub Actions CI.
+- **지켜지는 코드** — pytest 50개 + ruff + mypy, GitHub Actions CI.
 
 ---
 
@@ -97,6 +100,7 @@ python3 -m venv .venv               # homebrew python은 PEP668로 전역설치 
 
 도구 호출·결과 같은 노이즈는 버리고 사람·AI 텍스트만 추출한다.
 `topic`은 세션의 작업 디렉토리 이름으로 자동 분류되고, 파일명은 세션 id 기준이라 **다시 돌려도 중복이 안 쌓인다(멱등)**.
+저장 직전에 토큰·키·비밀번호는 자동으로 마스킹된다(`--no-redact` 로 끌 수 있다. 아래 "개인정보 / 보안").
 
 ### 2. 인덱스 생성/갱신 (증분)
 
@@ -122,6 +126,35 @@ CHATLOG_LLM=qwen2.5:14b .venv/bin/python rag.py ask "..."
 | `--min-sim` | 이 유사도 미만 청크는 버림 (기본 0.45) |
 | `--alpha`   | 하이브리드 비중 (1=벡터, 0=BM25, 기본 0.5) |
 
+### 4. 결론 메모 — 찾은 답을 한 파일에 남기기
+
+세션 원문은 길고(수백만 자), 같은 페이지가 반복되고, 검색은 "어디에 뭐가 있었는지"까지만 알려준다.
+그래서 **답이 나온 시점에 "결론 + 출처 링크"를 `notes/notes.jsonl` 에 한 줄 남긴다**(append-only).
+다음 검색에서는 이 메모가 원문 기록보다 앞에 온다. Notion·Confluence 에 따로 정리하지 않아도 된다.
+
+```bash
+.venv/bin/python notes.py add "11번가 Open API 키 발급 경로" \
+    "OPEN API 센터 → API 관리는 셀러오피스 로그인이라 판매자회원 승인이 필요할 수 있다" \
+    --source https://openapi.11st.co.kr/openapi/OpenApiFrontMain.tmall --source PAY-123 \
+    --topic lowpick --tag api
+.venv/bin/python rag.py ingest          # 메모 하나 = 청크 하나로 인덱스에 들어간다
+
+.venv/bin/python notes.py list --topic lowpick
+.venv/bin/python notes.py export       # notes/notes.md (사람이 읽는 백업)
+```
+
+```json
+{"id":"1a2b3c4d5e6f","date":"2025-01-16","title":"캐시 TTL 24시간 결정","topic":"caching",
+ "text":"원본 데이터가 하루 한 번 갱신되어 TTL 24시간으로 합의.","sources":["https://…/wiki/cache-ttl","PAY-123"],
+ "tags":["결정"],"created_at":"2025-01-16T10:12:00","redacted":0}
+```
+
+- 검색(`rag.py ask`, `search_chatlog`, 웹)에서 임계값을 넘긴 메모는 `★ 결론 메모` 로 표시되고 원문 기록보다 앞에 온다.
+  무관한 메모는 임계값에 걸려 끼어들지 않는다(`notes_first=False` 로 점수순만 볼 수도 있다).
+- 로컬 LLM 프롬프트에도 "결론 메모가 원문과 어긋나면 메모를 우선"하라는 규칙이 들어간다.
+- 저장 전에 비밀값은 마스킹되고(`redacted` 에 건수), 파일은 `.gitignore` 라 커밋되지 않는다. 포맷 예시: `examples/notes.example.jsonl`.
+- Claude 안에서는 MCP 도구 `save_note` 가 같은 파일에 쓰고 즉시 인덱스를 갱신한다(아래 "MCP").
+
 ---
 
 ## 웹 UI / API
@@ -139,6 +172,8 @@ python3 server.py            # http://127.0.0.1:8000
   `generate:false` 면 LLM 생성을 건너뛰고 검색 결과만(빠름)
 - `POST /api/ask/stream` — 위와 같되 SSE(`sources`→`token`*→`done`)로 스트리밍
 - `POST /api/reload` — 로그 갱신 후 인덱스 다시 로드
+- `POST /api/notes` — 결론 메모 저장 `{title, text, sources?, topic?, tags?}` → 바로 ingest (Ollama 가 없으면 저장만 하고 202)
+- `GET /api/notes?topic=&since=&limit=` — 메모 목록(최신순)
 
 인덱스와 BM25 는 서버 시작 시 한 번만 로드한다. Ollama 가 죽어 있으면 503 으로 응답한다.
 
@@ -151,10 +186,13 @@ python3 server.py            # http://127.0.0.1:8000
 pip install -e ".[mcp]"      # mcp
 ```
 
-도구 3개를 노출한다:
+도구 5개를 노출한다:
 
-- `search_chatlog` — 관련 기록(원문 청크)만 반환. **답 요약은 Claude 가** 하므로 빠르다(주력).
+- `search_chatlog` — 관련 기록(원문 청크)만 반환. **답 요약은 Claude 가** 하므로 빠르다(주력). 결론 메모는 `★` 로 앞에 온다.
 - `ask_chatlog` — 로컬 qwen2.5 가 직접 한국어 답을 생성(CLI/웹과 동일 동작).
+- `save_note` — 대화에서 확인한 결론을 출처와 함께 `notes/notes.jsonl` 에 저장하고 즉시 인덱스 갱신.
+  "찾았다"로 끝내지 말고 이 도구로 남겨 두면 다음 세션은 원문을 뒤지지 않는다.
+- `list_notes` — 저장된 메모 목록(최신순, topic·since 필터).
 - `reload_chatlog` — `rag.py ingest` 후 메모리 인덱스 재적재.
 
 Claude Code(`~/.claude.json` 또는 프로젝트 `.mcp.json`) / Desktop 설정에 등록:
@@ -232,14 +270,14 @@ launchctl bootout gui/$(id -u)/com.chatlog.daily
 ```bash
 .venv/bin/pip install -e ".[dev]"   # pytest, ruff, mypy, fastapi, httpx
 
-pytest          # 단위 테스트 31개 (Ollama 불필요 — 임베딩/생성을 가짜로 주입)
+pytest          # 단위 테스트 50개 (Ollama 불필요 — 임베딩/생성을 가짜로 주입)
 ruff check .    # 린트
 mypy .          # 핵심 로직(rag.py, bm25.py) 타입 체크
 ```
 
 테스트는 임베딩/생성을 가짜로 갈아끼워 **Ollama 없이** 청킹(턴 경계)·증분 인덱싱·하이브리드 검색·
-메타 필터·임계값, importer 의 파싱·멱등성·삭제 동기화, FastAPI 엔드포인트(스트리밍 포함)까지
-검증한다. push 마다 GitHub Actions 가 `ruff + mypy + pytest` 를 동일하게 돌린다.
+메타 필터·임계값, importer 의 파싱·멱등성·삭제 동기화·마스킹, 결론 메모 저장·우선 노출·중복 제거,
+FastAPI 엔드포인트(스트리밍·메모 포함)까지 검증한다. push 마다 GitHub Actions 가 `ruff + mypy + pytest` 를 동일하게 돌린다.
 
 ### 검색 품질 측정 (recall@k / MRR)
 
@@ -298,9 +336,21 @@ BM25                  1.00      1.00      1.00   1.000
 
 ## ⚠️ 개인정보 / 보안
 
-`logs/`와 `index.npz`에는 **실제 대화 내용**이 담긴다. 업무·개인 정보가 섞일 수 있으므로
+`logs/`, `notes/`, `index.npz`에는 **실제 대화 내용**이 담긴다. 업무·개인 정보가 섞일 수 있으므로
 `.gitignore`가 이들을 커밋에서 제외한다. 저장소에는 **코드와 포맷 예시(`examples/`)만** 올라간다.
 실제 데이터로 쓰는 디렉토리는 따로 두고, 공개 저장소엔 절대 로그를 올리지 않는다.
+
+**비밀값 마스킹(`redact.py`)** — 대화에는 Notion·Confluence·코드에서 복사된 토큰이 그대로 실리기 쉽고,
+한 번 로그에 들어가면 인덱스 → 검색 결과 → 다음 대화로 다시 번진다. 그래서 `import_logs.py` 와 메모 저장은
+저장 직전에 아래를 `[REDACTED:종류]` 로 바꾼다(오탐을 줄이려고 모양이 뚜렷한 것만).
+
+- GitHub(`ghp_…`, `github_pat_…`), Slack(`xox?-…`), AWS(`AKIA…`), Google(`AIza…`), OpenAI/Anthropic(`sk-…`), JWT, `Bearer …`
+- `-----BEGIN PRIVATE KEY-----` 블록
+- `api_key=값`, `GITHUB_TOKEN=값`, `password: 값` 같은 꼴은 키 이름을 남기고 값(8자 이상)만
+- "recovery code / 복구 코드" 가 적힌 줄의 코드 모양 토큰
+
+이미 받은 로그는 `import_logs.py` 를 다시 돌리면(멱등) 마스킹된 내용으로 덮어쓰고, `rag.py ingest` 가 인덱스를 갱신한다.
+마스킹은 사후 방어다. 토큰이 노출됐다면 **폐기·재발급이 먼저**다.
 
 ---
 
@@ -309,8 +359,10 @@ BM25                  1.00      1.00      1.00   1.000
 ```text
 rag.py            ingest(인덱스) · search(하이브리드 검색) · ask(질문)
 bm25.py           경량 BM25 어휘 검색 (의존성 없음)
+notes.py          결론 메모(notes/notes.jsonl) add · list · export — ingest 가 메모도 인덱싱
+redact.py         비밀값 마스킹 (import·메모 저장 시 자동 적용)
 server.py         FastAPI 웹 서버 (스트리밍 UI + JSON API)
-mcp_server.py     MCP 서버 (Claude Code/Desktop 에 붙이는 도구 3종)
+mcp_server.py     MCP 서버 (Claude Code/Desktop 에 붙이는 도구 5종)
 setup.sh          새 PC 한 방 설치 (모델·venv·인덱싱·MCP 등록, 경로 자동 인식)
 web/index.html    검색창 웹 UI (SSE 스트리밍, 자체 완결)
 import_logs.py    claude-code / claude-export / memory → logs/*.jsonl (+ --prune)
@@ -319,12 +371,13 @@ auto_update.sh    매일 자동 수집 스크립트 (launchd가 실행, 경로 �
 install_launchd.sh                LaunchAgent 설치 (경로 자동 치환)
 com.chatlog.daily.plist.template   LaunchAgent 템플릿
 Dockerfile · docker-compose.yml · docker-entrypoint.sh   ollama+앱 한 번에
-tests/            pytest 단위 테스트 31개 (Ollama 불필요)
+tests/            pytest 단위 테스트 50개 (Ollama 불필요)
 eval/qa.jsonl     평가용 라벨 질문 세트
 examples/         로그 포맷 예시 (평가 데이터 겸용)
 pyproject.toml    의존성 · pytest/ruff/mypy 설정
 .github/workflows/ci.yml          CI (ruff + mypy + pytest)
 logs/             대화 로그 (gitignore — 커밋되지 않음)
+notes/            결론 메모 notes.jsonl 과 내보내기 notes.md (gitignore — 커밋되지 않음)
 ```
 
 ## 스택
