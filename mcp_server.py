@@ -11,12 +11,22 @@ MCP 서버 — Claude Code / Desktop 안에서 과거 대화 로그를 바로 �
 
 Claude 설정 등록 예시는 README "MCP 로 붙여 쓰기" 참고.
 인덱스가 있어야 한다 — 먼저 `rag.py ingest`. 임베딩에 Ollama 가 떠 있어야 한다.
-"""
-from mcp.server.fastmcp import FastMCP
 
+주의: stdio transport 에서는 stdout 이 프로토콜 채널이다. rag 의 print 는 stderr 로 돌린다.
+"""
+import contextlib
+import sys
+
+# mcp 2.x 는 FastMCP 를 MCPServer 로 바꿨다(tool 데코레이터·run 은 같다). 1.x 도 지원한다.
+try:
+    from mcp.server.mcpserver import MCPServer as _Server
+except ImportError:
+    from mcp.server.fastmcp import FastMCP as _Server  # type: ignore[attr-defined,no-redef]
+
+import notes
 import rag
 
-mcp = FastMCP("chatlog")
+mcp = _Server("chatlog")
 
 # 인덱스/BM25 는 첫 호출 때 한 번 로드해 캐시한다(웹서버와 같은 패턴).
 _STATE: dict = {"mat": None, "metas": None, "bm25": None, "loaded": False}
@@ -70,7 +80,8 @@ def search_chatlog(question: str, k: int = rag.TOP_K, alpha: float = rag.VEC_WEI
     if hits is None:
         return note
     blocks = [
-        f"[{m['date']} · {m['source']} · {m['topic']} · {m['file']}] (유사도 {s:.2f})\n{m['text']}"
+        f"{rag.note_mark(m)}[{m['date']} · {m['source']} · {m['topic']} · {m['file']}] "
+        f"(유사도 {s:.2f})\n{m['text']}"
         for m, s in hits
     ]
     return f"관련 기록 {len(hits)}건:\n\n" + "\n\n---\n\n".join(blocks)
@@ -94,13 +105,63 @@ def ask_chatlog(question: str, k: int = rag.TOP_K, alpha: float = rag.VEC_WEIGHT
         answer = rag.generate(rag.build_prompt(question, hits))
     except rag.OllamaError as e:
         return f"[오류] {e}"
-    sources = "\n".join(f"  · {m['date']} {m['file']} (유사도 {s:.2f})" for m, s in hits)
+    sources = "\n".join(f"  · {rag.note_mark(m)}{m['date']} {m['file']} (유사도 {s:.2f})"
+                        for m, s in hits)
     return f"{answer}\n\n── 참고한 기록 ──\n{sources}"
 
 
 @mcp.tool()
+def save_note(title: str, text: str, sources: list[str] | None = None,
+              topic: str | None = None, tags: list[str] | None = None) -> str:
+    """확인한 결론을 출처와 함께 결론 메모 파일(notes/notes.jsonl)에 저장하고 바로 인덱스에 넣는다.
+
+    긴 원문을 다시 뒤지지 않게, 질문에 답이 나온 시점에 "결론 + 출처 링크"를 남길 때 사용한다.
+    이후 search_chatlog 에서 이 메모가 원문 기록보다 앞에 온다.
+    저장 전에 토큰·키 같은 비밀값은 마스킹된다.
+
+    Args:
+        title: 한 줄 제목 (예: "11번가 Open API 키 발급 경로")
+        text: 결론 본문 — 다음 사람이 이것만 읽어도 되게 쓴다
+        sources: 출처 링크·문서 번호·Jira 키 목록
+        topic: 주제 (search_chatlog 의 topic 필터와 같은 축). 기본 note
+        tags: 태그 목록
+    """
+    try:
+        rec = notes.add_note(title, text, sources=sources, topic=topic, tags=tags)
+    except ValueError as e:
+        return f"[오류] {e}"
+    try:
+        # ingest 의 print 가 stdout(프로토콜 채널)을 더럽히지 않게 stderr 로 돌린다
+        with contextlib.redirect_stdout(sys.stderr):
+            rag.cmd_ingest(None)
+        _STATE["loaded"] = False
+        n = _ensure_loaded()
+        status = f"인덱스 갱신 완료({n} 청크)"
+    except rag.OllamaError as e:
+        status = ("저장은 됐지만 인덱스 갱신은 실패했습니다. "
+                  f"Ollama 를 띄운 뒤 reload_chatlog 를 호출하세요 ({e})")
+    masked = f", 비밀값 {rec['redacted']}건 마스킹" if rec.get("redacted") else ""
+    return f"결론 메모 저장: [{rec['date']}] {rec['title']} (id {rec['id']}{masked}). {status}"
+
+
+@mcp.tool()
+def list_notes(topic: str | None = None, since: str | None = None, limit: int = 20) -> str:
+    """저장된 결론 메모를 최신순으로 보여준다(검색 없이 목록만). topic·since 로 거른다."""
+    items = notes.list_notes(topic=topic, since=since, limit=limit)
+    if not items:
+        return "저장된 결론 메모가 없습니다."
+    blocks = []
+    for n in items:
+        block = f"[{n['date']} · {n['topic']} · id {n['id']}] {n['title']}\n{n['text']}"
+        if n.get("sources"):
+            block += "\n출처: " + " · ".join(n["sources"])
+        blocks.append(block)
+    return f"결론 메모 {len(items)}건:\n\n" + "\n\n---\n\n".join(blocks)
+
+
+@mcp.tool()
 def reload_chatlog() -> str:
-    """로그를 새로 ingest 한 뒤, 메모리에 적재된 인덱스를 다시 읽어들인다."""
+    """인덱스를 다시 읽어들인다(로그·메모를 바꾸고 `rag.py ingest` 를 돌린 뒤)."""
     _STATE["loaded"] = False
     n = _ensure_loaded()
     if n is None:

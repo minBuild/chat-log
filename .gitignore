@@ -16,3 +16,7 @@ logs/*.jsonl
 
 # macOS
 .DS_Store
+
+# 결론 메모(개인/업무 데이터)와 그 내보내기 파일은 커밋 금지
+notes/*.jsonl
+notes/*.md

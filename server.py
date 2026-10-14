@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+import notes
 import rag
 
 STATE = {"mat": None, "metas": None, "bm25": None}
@@ -118,6 +119,35 @@ def ask_stream(req: AskReq):
 @app.post("/api/reload")
 def reload():
     return {"chunks": _load()}
+
+
+class NoteReq(BaseModel):
+    title: str
+    text: str
+    sources: list[str] = []
+    topic: str | None = None
+    tags: list[str] = []
+
+
+@app.post("/api/notes")
+def add_note(req: NoteReq):
+    """결론 메모 저장 → 바로 ingest 해 검색에 반영. Ollama 가 없으면 저장만 되고 202."""
+    try:
+        rec = notes.add_note(req.title, req.text, sources=req.sources, topic=req.topic,
+                             tags=req.tags)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    try:
+        rag.cmd_ingest(None)
+        _load()
+        return {"note": rec, "indexed": True}
+    except rag.OllamaError as e:
+        return JSONResponse({"note": rec, "indexed": False, "error": str(e)}, status_code=202)
+
+
+@app.get("/api/notes")
+def get_notes(topic: str | None = None, since: str | None = None, limit: int = 20):
+    return {"notes": notes.list_notes(topic=topic, since=since, limit=limit)}
 
 
 if __name__ == "__main__":

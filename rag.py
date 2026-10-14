@@ -29,6 +29,8 @@ from collections.abc import Iterator
 import numpy as np
 
 from bm25 import BM25, tokenize
+from notes import SOURCE as NOTE_SOURCE
+from notes import iter_note_chunks
 
 # ── 설정 ───────────────────────────────────────────────────────────
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -146,6 +148,12 @@ def iter_log_chunks(log_dir: str | None = None) -> Iterator[tuple[str, dict]]:
                           "chunk": ci, "text": chunk}
 
 
+def iter_all_chunks() -> Iterator[tuple[str, dict]]:
+    """ingest 대상 전체: 대화 로그 청크 + 결론 메모 청크(메모 하나 = 청크 하나)."""
+    yield from iter_log_chunks()
+    yield from iter_note_chunks()
+
+
 def load_records(path: str) -> list[dict]:
     """jsonl 파일 한 개를 읽어 레코드 리스트로 반환."""
     recs = []
@@ -177,15 +185,20 @@ def _hash(text: str) -> str:
 
 
 def cmd_ingest(_args) -> None:
-    pairs = list(iter_log_chunks())
+    pairs = list(iter_all_chunks())
     if not pairs:
-        sys.exit(f"[오류] {LOG_DIR} 에 *.jsonl 로그가 없습니다.")
+        sys.exit(f"[오류] {LOG_DIR} 에 *.jsonl 로그도, 결론 메모도 없습니다.")
 
     cache = _load_cache()
     vectors, metas = [], []
-    reused = embedded = 0
+    reused = embedded = duplicates = 0
+    seen: set[str] = set()
     for chunk, meta in pairs:
         h = _hash(chunk)
+        if h in seen:                            # 같은 내용이 여러 세션에 반복 → 한 번만 넣는다
+            duplicates += 1
+            continue
+        seen.add(h)
         if h in cache:                           # 내용 동일 → 임베딩 재사용
             vectors.append(cache[h])
             reused += 1
@@ -201,7 +214,7 @@ def cmd_ingest(_args) -> None:
     with open(INDEX_META, "w", encoding="utf-8") as f:
         json.dump(metas, f, ensure_ascii=False)
     print(f"\n인덱스 생성 완료: {len(metas)} 청크 "
-          f"(신규 임베딩 {embedded}, 재사용 {reused}), 차원 {mat.shape[1]}")
+          f"(신규 임베딩 {embedded}, 재사용 {reused}, 중복 제거 {duplicates}), 차원 {mat.shape[1]}")
 
 
 # ── 검색 (출력과 분리: 테스트·평가 하네스가 재사용) ────────────────
@@ -229,12 +242,13 @@ def _minmax(x: np.ndarray) -> np.ndarray:
 def search(question: str, mat: np.ndarray, metas: list[dict], k: int = TOP_K,
            min_sim: float = MIN_SIM, topic: str | None = None, since: str | None = None,
            until: str | None = None, alpha: float = VEC_WEIGHT,
-           bm25: BM25 | None = None) -> tuple[list | None, float | None]:
+           bm25: BM25 | None = None, notes_first: bool = True) -> tuple[list | None, float | None]:
     """질문 → 하이브리드(벡터+BM25) 검색. 반환: (hits, max_sim).
 
     랭킹은 α·벡터 + (1-α)·BM25 결합 점수로, 정렬·노출되는 점수(meta 옆)는 벡터 코사인.
     필터: 벡터 코사인이 min_sim 이상이거나, 어휘 매칭(BM25>0)이 있으면 유지
     → 임베딩이 못 잡는 정확한 식별자 매칭도 살아남는다.
+    notes_first: 임계값을 넘긴 결론 메모(source=note)는 원문 기록보다 앞에 둔다(순서는 각자 점수순).
     필터로 후보가 0이면 (None, None)."""
     idx = list(range(len(metas)))
     if topic:
@@ -260,13 +274,21 @@ def search(question: str, mat: np.ndarray, metas: list[dict], k: int = TOP_K,
     for j in order:
         if vec[j] >= min_sim or (lex is not None and lex[j] > 0):
             hits.append((metas[idx[j]], float(vec[j])))
+    if notes_first:
+        hits = ([h for h in hits if h[0].get("source") == NOTE_SOURCE]
+                + [h for h in hits if h[0].get("source") != NOTE_SOURCE])
     return hits, float(vec.max())
 
 
 # ── 프롬프트 (CLI·API 공용) ────────────────────────────────────────
+def note_mark(meta: dict) -> str:
+    """결론 메모 청크 앞에 붙이는 표식(검색 결과·프롬프트 공용)."""
+    return "★ 결론 메모 " if meta.get("source") == NOTE_SOURCE else ""
+
+
 def build_prompt(question: str, hits: list) -> str:
     context = "\n\n".join(
-        f"[{m['date']} · {m['source']} · {m['topic']}] (유사도 {s:.2f})\n{m['text']}"
+        f"{note_mark(m)}[{m['date']} · {m['source']} · {m['topic']}] (유사도 {s:.2f})\n{m['text']}"
         for m, s in hits
     )
     today = datetime.date.today().isoformat()
@@ -278,6 +300,7 @@ def build_prompt(question: str, hits: list) -> str:
 - 반드시 한국어로만 답해라. 다른 언어를 절대 섞지 마라.
 - 기록에 근거가 있으면 날짜를 함께 인용해라.
 - 기록에서 답을 찾을 수 없을 때만 "기록에서 찾지 못했다"고 말해라. 지어내지 마라.
+- ★ 결론 메모는 사용자가 확인해 둔 결론이다. 원문 기록과 어긋나면 메모를 우선해라.
 
 [검색된 기록]
 {context}
@@ -310,7 +333,7 @@ def cmd_ask(args) -> None:
     print(generate(prompt))
     print("\n── 참고한 기록 ──")
     for m, s in hits:
-        print(f"  · {m['date']} {m['file']} (유사도 {s:.2f})")
+        print(f"  · {note_mark(m)}{m['date']} {m['file']} (유사도 {s:.2f})")
 
 
 # ── 엔트리포인트 ───────────────────────────────────────────────────

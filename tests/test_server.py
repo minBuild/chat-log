@@ -73,3 +73,16 @@ def test_ask_returns_503_on_ollama_down(client, rag_mod):
     r = client.post("/api/ask", json={"question": "캐시"})
     assert r.status_code == 503
     assert "error" in r.json()
+
+
+def test_notes_endpoints(client, rag_mod, notes_env, monkeypatch):
+    monkeypatch.setattr(rag_mod, "cmd_ingest", lambda _a: None)      # Ollama 없이: ingest 는 생략
+    r = client.post("/api/notes", json={"title": "캐시 TTL", "text": "24시간", "sources": ["W-1"],
+                                        "topic": "caching"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["indexed"] is True and d["note"]["title"] == "캐시 TTL"
+    assert d["note"]["sources"] == ["W-1"]
+    assert client.post("/api/notes", json={"title": "", "text": "x"}).status_code == 400
+    listed = client.get("/api/notes", params={"topic": "caching"}).json()["notes"]
+    assert [n["title"] for n in listed] == ["캐시 TTL"]

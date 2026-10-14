@@ -1,0 +1,1 @@
+{"id":"1a2b3c4d5e6f","date":"2025-01-16","title":"캐시 TTL 24시간 결정","topic":"caching","text":"원본 데이터가 하루 한 번 갱신되어 TTL 24시간으로 합의. 더 짧으면 불필요한 재조회, 더 길면 갱신 뒤 옛 값 노출.","sources":["https://example.com/wiki/cache-ttl","PAY-123"],"tags":["결정","캐시"],"created_at":"2025-01-16T10:12:00","redacted":0}

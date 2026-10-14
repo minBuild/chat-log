@@ -47,3 +47,11 @@ def write_log(rag, name, records):
     with open(os.path.join(rag.LOG_DIR, name), "w", encoding="utf-8") as f:
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+@pytest.fixture
+def notes_env(tmp_path, monkeypatch):
+    """notes 모듈을 임시 파일로 격리(rag_env 와 함께 쓰면 ingest 가 이 메모를 읽는다)."""
+    import notes
+    monkeypatch.setattr(notes, "NOTES_FILE", str(tmp_path / "notes" / "notes.jsonl"))
+    return notes
